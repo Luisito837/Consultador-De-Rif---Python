@@ -6,6 +6,9 @@ Herramienta para hacer multiples consultas al seniat.
 Esta herramienta pide el excel de las rutas y toma los rifs de los clientes para hacer peticiones mediante python a la pagina del SENIAT, con el fin de conocer que clientes son Contribuyentes Especiales o no.
 
 
+
+
+
 ## Uso (Aplicacion/Release)
 
 Para usar la aplicacion se debe de seguir esta serie de pasos:
@@ -16,9 +19,12 @@ Para usar la aplicacion se debe de seguir esta serie de pasos:
 
 3 - Al cargar el excel se desplegara una lista con todas las Rutas disponibles y el numero de clientes asociados a esa Ruta. Aqui podra seleccionar las Rutas a las cuales quiere consultar marcado o desmarcado la casilla de verificación (CheckBox).
 
-4 - Para empezar a procesar solo presione el boton y el programa empezara a trabajar `El proceso tarda 30-40 minutos aprox.`
+4 - Para empezar a procesar solo presione el boton y el programa empezara a trabajar `El proceso varia segun la cantidad de peticiones / clientes.`
 
-5 - Al finalizar se generara un nuevo excel con el mismo nombre del anterior solo que se le agrega "_PROCESADO" al final del archivo.
+5 - Al finalizar se generara un nuevo excel con el mismo nombre del anterior. Y se agrega "_PROCESADO" al final del archivo.
+
+
+
 
 ## Uso (Codigo Fuente/Source Code)
 
