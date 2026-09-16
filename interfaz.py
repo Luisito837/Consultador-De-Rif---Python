@@ -29,6 +29,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.df_filtrado_global = None
     self.ruta_archivo_actual = None
     self.route_vars = {}
+    self.cancelar_proceso = False
+    self.ruta_guardado = None
 
     self.chk_activo_var = tk.BooleanVar(value=True)
     self.chk_inactivo_var = tk.BooleanVar(value=True)
@@ -709,6 +711,28 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.txt_log.see(tk.END)
     self.txt_log.config(state="disabled")
 
+  def solicitar_cancelacion(self):
+    """Muestra un diálogo de confirmación para cancelar el proceso."""
+    respuesta = messagebox.askyesno(
+        "Confirmar Cancelación",
+        "¿Seguro que quiere cancelar la consulta?",
+        parent=self.top_log if hasattr(self, 'top_log') and self.top_log.winfo_exists() else self
+    )
+    if respuesta:
+      self.cancelar_proceso = True
+      if hasattr(self, 'top_log') and self.top_log.winfo_exists():
+        self.top_log.destroy()
+      self.restaurar_boton_iniciar()
+
+  def restaurar_boton_iniciar(self):
+    """Devuelve el botón a su estado original de 'Iniciar Consulta'."""
+    self.btn_download.config(
+        text="Iniciar Consulta",
+        bg="#28a745",
+        command=self.iniciar_hilo_consultas,
+        state="normal"
+    )
+
   def iniciar_hilo_consultas(self):
     df_final = self.obtener_df_filtrado_actual()
     if df_final.empty:
@@ -725,10 +749,29 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       messagebox.showwarning("Aviso", "No hay RIFs válidos para consultar.")
       return
 
+    # Solicitar ruta de guardado antes de iniciar el proceso
+    base, ext = os.path.splitext(self.ruta_archivo_actual)
+    nombre_sugerido = f"{os.path.basename(base)}_PROCESADO{ext}"
+    self.ruta_guardado = filedialog.asksaveasfilename(
+        title="Guardar archivo procesado como...",
+        initialfile=nombre_sugerido,
+        defaultextension=".xlsx",
+        filetypes=[("Archivos de Excel", "*.xlsx"), ("Todos los archivos", "*.*")]
+    )
+
+    # Si el usuario cierra el cuadro de diálogo sin elegir ruta, abortar
+    if not self.ruta_guardado:
+      return
+
+    self.cancelar_proceso = False
+
     self.top_log = tk.Toplevel(self)
     self.top_log.title("Consola SENIAT - Procesamiento por Lotes")
     self.top_log.geometry("650x450")
     self.top_log.config(bg="#1e1e1e")
+
+    # Vincular cierre de la ventana de la consola (la 'X') con la cancelación
+    self.top_log.protocol("WM_DELETE_WINDOW", self.solicitar_cancelacion)
 
     self.txt_log = tk.Text(
         self.top_log, bg="#1e1e1e", fg="#4af626", font=("Consolas", 10)
@@ -736,7 +779,13 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.txt_log.pack(fill="both", expand=True, padx=10, pady=10)
     self.txt_log.config(state="disabled")
 
-    self.btn_download.config(state="disabled")
+    # Modificar el botón para que actúe como "Cancelar"
+    self.btn_download.config(
+        text="Cancelar Consulta",
+        bg="#dc3545",
+        command=self.solicitar_cancelacion,
+        state="normal"
+    )
 
     hilo_maestro = threading.Thread(
         target=self.gestor_multihilo_background,
@@ -760,6 +809,10 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     )
 
     for rif in chunk_rifs:
+      # --- NUEVO: Interrumpir ciclo si el proceso fue cancelado ---
+      if getattr(self, "cancelar_proceso", False):
+        break
+
       max_intentos = 12
       intento = 1
       res = None
@@ -849,6 +902,10 @@ class ExcelUploaderApp(TkinterDnD.Tk):
 
       wait(futuros)
 
+    # --- NUEVO: Evitar generar el documento si se canceló la operación ---
+    if getattr(self, "cancelar_proceso", False):
+      return
+
     self.generar_excel_final(mapa_contribuyentes)
 
   def generar_excel_final(self, mapa_contribuyentes):
@@ -902,8 +959,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
                 horizontal="center"
             )
 
-        base, ext = os.path.splitext(self.ruta_archivo_actual)
-        nuevo_archivo = f"{base}_PROCESADO{ext}"
+        # Utilizar la ruta seleccionada por el usuario en vez del nombre por defecto
+        nuevo_archivo = self.ruta_guardado
         wb.save(nuevo_archivo)
 
         self.escribir_log(
@@ -921,7 +978,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     except Exception as e:
       self.escribir_log(f"Error fatal guardando Excel: {e}")
     finally:
-      self.after(0, lambda: self.btn_download.config(state="normal"))
+      # Restaurar visualmente el botón al concluir el proceso
+      self.after(0, self.restaurar_boton_iniciar)
 
 
 if __name__ == "__main__":
