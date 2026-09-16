@@ -23,7 +23,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.geometry(self.cargar_configuracion())
     self.config(bg="#f8f9fa")
     self.resizable(True, True)
-    self.minsize(480, 410)
+    self.minsize(800, 600)
     self.protocol("WM_DELETE_WINDOW", self.cerrar_app)
 
     self.df_filtrado_global = None
