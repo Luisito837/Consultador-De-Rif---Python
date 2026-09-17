@@ -802,8 +802,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       lock,
       contador_progreso,
       total_rifs,
+      api
   ):
-    api = SeniatOCR()
     self.escribir_log(
         f"[Hilo #{id_hilo}] Iniciado. Lote asignado: {len(chunk_rifs)} RIFs."
     )
@@ -875,6 +875,12 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         "--- Inicializando motor de reconocimiento visual... ---\n"
     )
 
+    try:
+        motor_ocr_global = SeniatOCR()
+    except Exception as e:
+        self.escribir_log(f"ERROR CRITICO: Fallo al inicializar OCR: {e}")
+        return
+
     k, m = divmod(total, MAX_WORKERS)
     chunks = [
         rifs_a_consultar[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)]
@@ -897,10 +903,17 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             lock,
             contador_progreso,
             total,
+            motor_ocr_global
         )
         futuros.append(futuro)
 
       wait(futuros)
+
+      for f in futuros:
+          try:
+              f.result()
+          except Exception as e:
+              self.escribir_log(f"ERROR FATAL EN HILO: {e}")
 
     # --- NUEVO: Evitar generar el documento si se canceló la operación ---
     if getattr(self, "cancelar_proceso", False):
