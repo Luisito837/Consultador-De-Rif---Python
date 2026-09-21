@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, wait
 from copy import copy
+from datetime import datetime
 import json
 import os
 import re
@@ -23,7 +24,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.geometry(self.cargar_configuracion())
     self.config(bg="#f8f9fa")
     self.resizable(True, True)
-    self.minsize(800, 600)
+    self.minsize(850, 600)
     self.protocol("WM_DELETE_WINDOW", self.cerrar_app)
 
     self.df_filtrado_global = None
@@ -42,7 +43,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         "write", lambda *args: self.actualizar_estadisticas()
     )
 
-    # --- FRAME CABECERA (LOGO OPCIONAL Y ADAPTABLE) ---
+    # --- FRAME CABECERA ---
     self.frame_logo = tk.Frame(self, bg="#f8f9fa")
     self.frame_logo.pack(side="top", anchor="nw", fill="x", padx=15, pady=10)
 
@@ -182,12 +183,12 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       try:
         with open(config_path, "r") as f:
           data = json.load(f)
-          ancho = max(data.get("ancho", 500), 480)
+          ancho = max(data.get("ancho", 520), 500)
           alto = max(data.get("alto", 410), 410)
           return f"{ancho}x{alto}"
       except Exception:
         pass
-    return "500x410"
+    return "520x410"
 
   def cerrar_app(self):
     try:
@@ -248,7 +249,13 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       df = df.loc[:, ~df.columns.duplicated()]
       df.columns = [str(c).strip() for c in df.columns]
 
-      col_ruta, col_rif, col_nombre, col_estatus = None, None, None, None
+      col_ruta, col_rif, col_nombre, col_estatus, col_contribuyente = (
+          None,
+          None,
+          None,
+          None,
+          None,
+      )
 
       for col in df.columns:
         col_upper = str(col).upper().strip()
@@ -269,6 +276,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           col_nombre = col
         elif not col_estatus and col_upper in ["ESTATUS", "ESTADO"]:
           col_estatus = col
+        elif not col_contribuyente and col_upper == "CONTRIBUYENTE":
+          col_contribuyente = col
 
       for col in df.columns:
         col_upper = str(col).upper()
@@ -291,6 +300,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             for k in ["ESTATUS", "ESTADO", "SITUACION", "CONDICION"]
         ):
           col_estatus = col
+        elif not col_contribuyente and "CONTRIBUYENTE" in col_upper:
+          col_contribuyente = col
 
       data_dict = {}
       if col_ruta:
@@ -303,6 +314,10 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         data_dict["Nombre Cliente"] = "SIN NOMBRE"
       if col_estatus:
         data_dict["Estatus"] = df[col_estatus]
+      if col_contribuyente:
+        data_dict["Contribuyente"] = df[col_contribuyente]
+      else:
+        data_dict["Contribuyente"] = "no"
 
       df_limpio = pd.DataFrame(data_dict)
 
@@ -363,6 +378,42 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         messagebox.showwarning("Aviso", "No se encontraron rutas coincidentes.")
         self.btn_download.pack_forget()
         return
+
+      # --- SELECTOR DE TIPO DE CONTRIBUYENTE A EVALUAR ---
+      frame_selector_tipo = tk.Frame(self.frame_checks, bg="#f8f9fa")
+      frame_selector_tipo.pack(fill="x", padx=20, pady=(5, 2))
+
+      tk.Label(
+          frame_selector_tipo,
+          text="Evaluar registros que estén:",
+          bg="#f8f9fa",
+          font=("Arial", 9, "bold"),
+          fg="#333",
+      ).pack(side="left", padx=(0, 10))
+
+      self.filtro_contribuyente_var = tk.StringVar(
+          value="Pendientes (NO / Vacíos)"
+      )
+      opciones_contribuyente = [
+          "Todos",
+          "Pendientes (NO / Vacíos)",
+          "Sí",
+          "No",
+          "Revisar",
+      ]
+
+      dropdown_contribuyente = ttk.Combobox(
+          frame_selector_tipo,
+          textvariable=self.filtro_contribuyente_var,
+          values=opciones_contribuyente,
+          state="readonly",
+          width=24,
+          font=("Arial", 9),
+      )
+      dropdown_contribuyente.pack(side="left")
+      dropdown_contribuyente.bind(
+          "<<ComboboxSelected>>", lambda e: self.actualizar_estadisticas()
+      )
 
       lbl_estatus = tk.Label(
           self.frame_checks,
@@ -430,11 +481,9 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       container_scroll.bind("<MouseWheel>", _on_mousewheel)
       container_scroll.bind("<Button-4>", _on_mousewheel)
       container_scroll.bind("<Button-5>", _on_mousewheel)
-
       canvas.bind("<MouseWheel>", _on_mousewheel)
       canvas.bind("<Button-4>", _on_mousewheel)
       canvas.bind("<Button-5>", _on_mousewheel)
-
       scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
       scrollable_frame.bind("<Button-4>", _on_mousewheel)
       scrollable_frame.bind("<Button-5>", _on_mousewheel)
@@ -452,7 +501,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             bg="white",
             font=("Arial", 9),
         )
-
         chk.bind("<MouseWheel>", _on_mousewheel)
         chk.bind("<Button-4>", _on_mousewheel)
         chk.bind("<Button-5>", _on_mousewheel)
@@ -465,7 +513,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       altura_canvas = min(130, max(40, num_filas * 22))
       canvas.config(height=altura_canvas)
 
-      # --- PANEL DE CONTADORES / ESTADÍSTICAS INTERACTIVAS ---
+      # --- PANEL DE ESTADÍSTICAS ---
       frame_stats = tk.Frame(self.frame_checks, bg="#f8f9fa")
       frame_stats.pack(fill="x", padx=20, pady=(2, 2))
 
@@ -479,6 +527,17 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           command=lambda: self.mostrar_detalle("total"),
       )
       self.btn_stat_total.pack(side="left", padx=2)
+
+      self.btn_stat_procesados = tk.Button(
+          frame_stats,
+          text="Ya Detectados: 0",
+          font=("Arial", 8, "bold"),
+          bg="#d1e7dd",
+          fg="#0f5132",
+          relief="groove",
+          command=lambda: self.mostrar_detalle("procesados"),
+      )
+      self.btn_stat_procesados.pack(side="left", padx=2)
 
       self.btn_stat_dup = tk.Button(
           frame_stats,
@@ -526,7 +585,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     except Exception as e:
       messagebox.showerror("Error", f"No se pudo leer el archivo:\n{e}")
 
-  def obtener_df_filtrado_actual(self):
+  def obtener_df_filtrado_actual(self, solo_pendientes=False):
     if self.df_filtrado_global is None or self.df_filtrado_global.empty:
       return pd.DataFrame()
 
@@ -552,97 +611,161 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       elif not activo and not inactivo:
         df_sub = df_sub.iloc[0:0]
 
+    # --- LÓGICA DEL FILTRO DE CONTRIBUYENTES ---
+    if hasattr(self, "filtro_contribuyente_var"):
+      seleccion = self.filtro_contribuyente_var.get()
+    else:
+      seleccion = "Pendientes (NO / Vacíos)"
+
+    if "Contribuyente" in df_sub.columns:
+      contrib = df_sub["Contribuyente"].astype(str).str.strip().str.upper()
+
+      if seleccion == "Todos":
+        pass
+      elif seleccion == "Pendientes (NO / Vacíos)":
+        df_sub = df_sub[
+            (contrib == "NO")
+            | (contrib == "NAN")
+            | (contrib == "")
+            | (contrib.isna())
+        ]
+      elif seleccion == "Sí":
+        df_sub = df_sub[
+            contrib.isin(["SI", "AGENTE DE RETENCIÓN", "AGENTE"])
+        ]
+      elif seleccion == "No":
+        df_sub = df_sub[contrib == "NO"]
+      elif seleccion == "Revisar":
+        df_sub = df_sub[contrib == "REVISAR"]
+    elif solo_pendientes:
+      if "Contribuyente" in df_sub.columns:
+        contrib = df_sub["Contribuyente"].astype(str).str.strip().str.lower()
+        df_sub = df_sub[
+            (contrib == "no")
+            | (contrib == "nan")
+            | (contrib == "")
+            | (contrib.isna())
+        ]
+
     return df_sub
 
   def actualizar_estadisticas(self):
-    df_sub = self.obtener_df_filtrado_actual()
-    if df_sub.empty:
+    df_sub_completo = self.obtener_df_filtrado_actual(solo_pendientes=False)
+    df_sub_pendientes = self.obtener_df_filtrado_actual(solo_pendientes=True)
+
+    if df_sub_completo.empty:
       if hasattr(self, "btn_stat_total"):
         self.btn_stat_total.config(text="Total: 0")
+        self.btn_stat_procesados.config(text="Ya Detectados: 0")
         self.btn_stat_dup.config(text="Duplicados: 0")
         self.btn_stat_vacio.config(text="Vacíos: 0")
         self.btn_stat_invalido.config(text="Inválidos: 0")
       return
 
-    rifs_serie = df_sub["Cliente (Identificación)"].astype(str).str.strip()
-    mask_vacios = (
-        df_sub["Cliente (Identificación)"].isna()
-        | (rifs_serie == "")
-        | (rifs_serie.str.lower().isin(["nan", "none", "null", "nat", "0"]))
-    )
-    vacios_count = mask_vacios.sum()
-
-    df_validos = df_sub[~mask_vacios]
-    dups_mask = df_validos.duplicated(
-        subset=["Cliente (Identificación)"], keep=False
-    )
-    dups_count = dups_mask.sum()
-
-    def es_rif_valido(rif):
-      rif_limpio = re.sub(r"[^0-9A-Za-z]", "", str(rif))
-      return bool(re.match(r"^[VEJPGvejpg]\d{7,10}$", rif_limpio))
-
-    invalidos_count = sum(
-        1
-        for rif in df_validos["Cliente (Identificación)"]
-        if not es_rif_valido(rif)
+    contrib = df_sub_completo["Contribuyente"].astype(str).str.strip().str.upper()
+    procesados_count = sum(
+        1 for c in contrib if c in ["SI", "AGENTE DE RETENCIÓN", "AGENTE"]
     )
 
-    total_unicos = df_validos["Cliente (Identificación)"].nunique()
+    if df_sub_pendientes.empty:
+      vacios_count, dups_count, invalidos_count, total_unicos = 0, 0, 0, 0
+    else:
+      rifs_serie = (
+          df_sub_pendientes["Cliente (Identificación)"].astype(str).str.strip()
+      )
+      mask_vacios = (
+          df_sub_pendientes["Cliente (Identificación)"].isna()
+          | (rifs_serie == "")
+          | (rifs_serie.str.lower().isin(["nan", "none", "null", "nat", "0"]))
+      )
+      vacios_count = mask_vacios.sum()
 
-    if hasattr(self, "btn_stat_total"):
-      self.btn_stat_total.config(text=f"Total: {total_unicos}")
-      self.btn_stat_dup.config(text=f"Duplicados: {dups_count}")
-      self.btn_stat_vacio.config(text=f"Vacíos: {vacios_count}")
-      self.btn_stat_invalido.config(text=f"Inválidos: {invalidos_count}")
-
-  def mostrar_detalle(self, tipo):
-    df_sub = self.obtener_df_filtrado_actual()
-    if df_sub.empty:
-      messagebox.showinfo("Aviso", "No hay datos para mostrar con el filtro actual.")
-      return
-
-    rifs_serie = df_sub["Cliente (Identificación)"].astype(str).str.strip()
-    mask_vacios = (
-        df_sub["Cliente (Identificación)"].isna()
-        | (rifs_serie == "")
-        | (rifs_serie.str.lower().isin(["nan", "none", "null", "nat", "0"]))
-    )
-
-    if tipo == "vacios":
-      df_resultado = df_sub[mask_vacios]
-      titulo = "Registros con celdas de RIF Vacías o Nulas"
-    elif tipo == "duplicados":
-      df_validos = df_sub[~mask_vacios]
+      df_validos = df_sub_pendientes[~mask_vacios]
       dups_mask = df_validos.duplicated(
           subset=["Cliente (Identificación)"], keep=False
       )
-      df_resultado = df_validos[dups_mask].sort_values(
-          by="Cliente (Identificación)"
-      )
-      titulo = "Registros con RIFs Duplicados (Agrupados)"
-    elif tipo == "invalidos":
+      dups_count = dups_mask.sum()
 
       def es_rif_valido(rif):
         rif_limpio = re.sub(r"[^0-9A-Za-z]", "", str(rif))
         return bool(re.match(r"^[VEJPGvejpg]\d{7,10}$", rif_limpio))
 
-      df_validos = df_sub[~mask_vacios]
-      invalidos_mask = [
-          not es_rif_valido(rif)
+      invalidos_count = sum(
+          1
           for rif in df_validos["Cliente (Identificación)"]
+          if not es_rif_valido(rif)
+      )
+
+      total_unicos = df_validos["Cliente (Identificación)"].nunique()
+
+    if hasattr(self, "btn_stat_total"):
+      self.btn_stat_total.config(text=f"Total: {total_unicos}")
+      self.btn_stat_procesados.config(text=f"Ya Detectados: {procesados_count}")
+      self.btn_stat_dup.config(text=f"Duplicados: {dups_count}")
+      self.btn_stat_vacio.config(text=f"Vacíos: {vacios_count}")
+      self.btn_stat_invalido.config(text=f"Inválidos: {invalidos_count}")
+
+  def mostrar_detalle(self, tipo):
+    if tipo == "procesados":
+      df_sub_completo = self.obtener_df_filtrado_actual(solo_pendientes=False)
+      contrib = (
+          df_sub_completo["Contribuyente"].astype(str).str.strip().str.upper()
+      )
+      df_resultado = df_sub_completo[
+          contrib.isin(["SI", "AGENTE DE RETENCIÓN", "AGENTE"])
       ]
-      df_resultado = df_validos[invalidos_mask]
-      titulo = "Registros con RIFs de Formato Inválido"
+      titulo = "Registros con Contribuyente Detectado (SI)"
     else:
-      df_validos = df_sub[~mask_vacios]
-      df_resultado = df_validos.drop_duplicates(
-          subset=["Cliente (Identificación)"]
-      ).sort_values(by="Cliente (Identificación)")
-      titulo = "Total de Clientes Únicos a Consultar"
+      df_sub = self.obtener_df_filtrado_actual(solo_pendientes=True)
+      if df_sub.empty:
+        messagebox.showinfo(
+            "Aviso", "No hay datos pendientes para mostrar en esta categoría."
+        )
+        return
+
+      rifs_serie = df_sub["Cliente (Identificación)"].astype(str).str.strip()
+      mask_vacios = (
+          df_sub["Cliente (Identificación)"].isna()
+          | (rifs_serie == "")
+          | (rifs_serie.str.lower().isin(["nan", "none", "null", "nat", "0"]))
+      )
+
+      if tipo == "vacios":
+        df_resultado = df_sub[mask_vacios]
+        titulo = "Registros Pendientes con RIFs Vacíos o Nulos"
+      elif tipo == "duplicados":
+        df_validos = df_sub[~mask_vacios]
+        dups_mask = df_validos.duplicated(
+            subset=["Cliente (Identificación)"], keep=False
+        )
+        df_resultado = df_validos[dups_mask].sort_values(
+            by="Cliente (Identificación)"
+        )
+        titulo = "Registros Pendientes con RIFs Duplicados"
+      elif tipo == "invalidos":
+
+        def es_rif_valido(rif):
+          rif_limpio = re.sub(r"[^0-9A-Za-z]", "", str(rif))
+          return bool(re.match(r"^[VEJPGvejpg]\d{7,10}$", rif_limpio))
+
+        df_validos = df_sub[~mask_vacios]
+        invalidos_mask = [
+            not es_rif_valido(rif)
+            for rif in df_validos["Cliente (Identificación)"]
+        ]
+        df_resultado = df_validos[invalidos_mask]
+        titulo = "Registros Pendientes con RIFs de Formato Inválido"
+      else:
+        df_validos = df_sub[~mask_vacios]
+        df_resultado = df_validos.drop_duplicates(
+            subset=["Cliente (Identificación)"]
+        ).sort_values(by="Cliente (Identificación)")
+        titulo = "Total de Clientes Únicos Pendientes por Consultar"
 
     if df_resultado.empty:
-      messagebox.showinfo("Información", f"No se encontraron elementos en la categoría '{tipo}'.")
+      messagebox.showinfo(
+          "Información", f"No se encontraron elementos en la categoría '{tipo}'."
+      )
       return
 
     top = tk.Toplevel(self)
@@ -712,32 +835,33 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.txt_log.config(state="disabled")
 
   def solicitar_cancelacion(self):
-    """Muestra un diálogo de confirmación para cancelar el proceso."""
     respuesta = messagebox.askyesno(
         "Confirmar Cancelación",
         "¿Seguro que quiere cancelar la consulta?",
-        parent=self.top_log if hasattr(self, 'top_log') and self.top_log.winfo_exists() else self
+        parent=self.top_log
+        if hasattr(self, "top_log") and self.top_log.winfo_exists()
+        else self,
     )
     if respuesta:
       self.cancelar_proceso = True
-      if hasattr(self, 'top_log') and self.top_log.winfo_exists():
+      if hasattr(self, "top_log") and self.top_log.winfo_exists():
         self.top_log.destroy()
       self.restaurar_boton_iniciar()
 
   def restaurar_boton_iniciar(self):
-    """Devuelve el botón a su estado original de 'Iniciar Consulta'."""
     self.btn_download.config(
         text="Iniciar Consulta",
         bg="#28a745",
         command=self.iniciar_hilo_consultas,
-        state="normal"
+        state="normal",
     )
 
   def iniciar_hilo_consultas(self):
-    df_final = self.obtener_df_filtrado_actual()
+    df_final = self.obtener_df_filtrado_actual(solo_pendientes=False)
     if df_final.empty:
       messagebox.showwarning(
-          "Atención", "No hay registros seleccionados para procesar."
+          "Atención",
+          "No hay registros que coincidan con los filtros seleccionados.",
       )
       return
 
@@ -749,28 +873,31 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       messagebox.showwarning("Aviso", "No hay RIFs válidos para consultar.")
       return
 
-    # Solicitar ruta de guardado antes de iniciar el proceso
     base, ext = os.path.splitext(self.ruta_archivo_actual)
-    nombre_sugerido = f"{os.path.basename(base)}_PROCESADO{ext}"
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    nombre_sugerido = f"{os.path.basename(base)}_PROCESADO_{fecha_hoy}{ext}"
     self.ruta_guardado = filedialog.asksaveasfilename(
         title="Guardar archivo procesado como...",
         initialfile=nombre_sugerido,
         defaultextension=".xlsx",
-        filetypes=[("Archivos de Excel", "*.xlsx"), ("Todos los archivos", "*.*")]
+        filetypes=[
+            ("Archivos de Excel", "*.xlsx"),
+            ("Todos los archivos", "*.*"),
+        ],
     )
 
-    # Si el usuario cierra el cuadro de diálogo sin elegir ruta, abortar
     if not self.ruta_guardado:
       return
 
     self.cancelar_proceso = False
 
     self.top_log = tk.Toplevel(self)
-    self.top_log.title("Consola SENIAT - Procesamiento por Lotes")
+    self.top_log.title(
+        "Consola SENIAT - Procesamiento por Lotes (Filtro Activo)"
+    )
     self.top_log.geometry("650x450")
     self.top_log.config(bg="#1e1e1e")
 
-    # Vincular cierre de la ventana de la consola (la 'X') con la cancelación
     self.top_log.protocol("WM_DELETE_WINDOW", self.solicitar_cancelacion)
 
     self.txt_log = tk.Text(
@@ -779,12 +906,11 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.txt_log.pack(fill="both", expand=True, padx=10, pady=10)
     self.txt_log.config(state="disabled")
 
-    # Modificar el botón para que actúe como "Cancelar"
     self.btn_download.config(
         text="Cancelar Consulta",
         bg="#dc3545",
         command=self.solicitar_cancelacion,
-        state="normal"
+        state="normal",
     )
 
     hilo_maestro = threading.Thread(
@@ -802,56 +928,88 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       lock,
       contador_progreso,
       total_rifs,
-      api
+      api,
   ):
     self.escribir_log(
         f"[Hilo #{id_hilo}] Iniciado. Lote asignado: {len(chunk_rifs)} RIFs."
     )
 
     for rif in chunk_rifs:
-      # --- NUEVO: Interrumpir ciclo si el proceso fue cancelado ---
       if getattr(self, "cancelar_proceso", False):
         break
 
-      max_intentos = 12
-      intento = 1
-      res = None
-
-      while intento <= max_intentos:
-        res = api.consultar_rif(rif)
-
-        if res and res.get("status") in ["success", "not_found"]:
-          if res.get("status") == "success":
-            self.escribir_log(f"[{rif}] ✅ Captcha Correcto.")
+      # --- DOBLE VALIDACIÓN SIMÉTRICA (EVITA FALSOS POSITIVOS Y NEGATIVOS) ---
+      def consultar_con_doble_check(rif_a_consultar):
+        # --- INTENTO 1 ---
+        intento = 1
+        res1 = None
+        while intento <= 12:
+          res1 = api.consultar_rif(rif_a_consultar)
+          if res1 and res1.get("status") in ["success", "not_found"]:
+            break
+          if res1 and res1.get("status") == "fail_ocr":
+            intento += 1
+            time.sleep(0.5)
+            continue
           break
 
-        if res and res.get("status") == "fail_ocr":
-          self.escribir_log(
-              f"[{rif}] ⚠️ Captcha Incorrecto (Intento"
-              f" {intento}/{max_intentos}). Reintentando..."
-          )
-          intento += 1
-          time.sleep(1.0)
-          continue
+        if not res1 or res1.get("status") != "success":
+          return "REVISAR", "Error de conexión o no encontrado"
 
-        self.escribir_log(f"[{rif}] ❌ Error de conexión o servidor.")
-        break
+        cond1 = res1.get("condicion", "").upper()
+        ret1 = res1.get("retencion", "").upper()
+        es_si_1 = (
+            "AGENTE DE RETENCIÓN DEL IVA" in cond1
+            or "AGENTE DE RETENCIÓN" in ret1
+        )
+        nombre_1 = res1.get("nombre", "SIN NOMBRE").title()
 
-      es_contribuyente = "NO"
-      if res and res.get("status") == "success":
-        nombre = res.get("nombre", "SIN NOMBRE").title()
-        condicion = res.get("condicion", "").upper()
+        # --- INTENTO 2 (Obligatorio para confirmar cualquier resultado) ---
+        time.sleep(1.0)
+        intento_2 = 1
+        res2 = None
+        while intento_2 <= 6:
+          res2 = api.consultar_rif(rif_a_consultar)
+          if res2 and res2.get("status") in ["success", "not_found"]:
+            break
+          if res2 and res2.get("status") == "fail_ocr":
+            intento_2 += 1
+            time.sleep(0.5)
+            continue
+          break
 
-        if "AGENTE DE RETENCIÓN DEL IVA" in condicion:
-          self.escribir_log(f"[{rif}] ▶ Procesado: {nombre} | Especial: SI")
-          es_contribuyente = "SI"
+        if not res2 or res2.get("status") != "success":
+          return "REVISAR", "Error en segunda validación"
+
+        cond2 = res2.get("condicion", "").upper()
+        ret2 = res2.get("retencion", "").upper()
+        es_si_2 = (
+            "AGENTE DE RETENCIÓN DEL IVA" in cond2
+            or "AGENTE DE RETENCIÓN" in ret2
+        )
+
+        # --- EVALUACIÓN CRUZADA ESTRICTA ---
+        if es_si_1 and es_si_2:
+          return "SI", nombre_1
+        elif not es_si_1 and not es_si_2:
+          return "NO", nombre_1
         else:
-          self.escribir_log(f"[{rif}] ▶ Procesado: {nombre} | Especial: NO")
+          return "REVISAR", nombre_1
+
+      resultado_final, nombre_cliente = consultar_con_doble_check(rif)
+
+      if resultado_final == "SI":
+        self.escribir_log(f"[{rif}] ▶ Procesado: {nombre_cliente} | Especial: SI")
+      elif resultado_final == "NO":
+        self.escribir_log(f"[{rif}] ▶ Procesado: {nombre_cliente} | Especial: NO")
       else:
-        self.escribir_log(f"[{rif}] ▶ El RIF No Existe o fallaron los intentos.")
+        self.escribir_log(
+            f"[{rif}] ⚠️ Discrepancia detectada (Falso Positivo/Negativo) ->"
+            " Marcado como: REVISAR"
+        )
 
       with lock:
-        mapa_contribuyentes[rif] = es_contribuyente
+        mapa_contribuyentes[rif] = resultado_final
         contador_progreso[0] += 1
         completados = contador_progreso[0]
 
@@ -876,10 +1034,10 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     )
 
     try:
-        motor_ocr_global = SeniatOCR()
+      motor_ocr_global = SeniatOCR()
     except Exception as e:
-        self.escribir_log(f"ERROR CRITICO: Fallo al inicializar OCR: {e}")
-        return
+      self.escribir_log(f"ERROR CRITICO: Fallo al inicializar OCR: {e}")
+      return
 
     k, m = divmod(total, MAX_WORKERS)
     chunks = [
@@ -903,19 +1061,18 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             lock,
             contador_progreso,
             total,
-            motor_ocr_global
+            motor_ocr_global,
         )
         futuros.append(futuro)
 
       wait(futuros)
 
       for f in futuros:
-          try:
-              f.result()
-          except Exception as e:
-              self.escribir_log(f"ERROR FATAL EN HILO: {e}")
+        try:
+          f.result()
+        except Exception as e:
+          self.escribir_log(f"ERROR FATAL EN HILO: {e}")
 
-    # --- NUEVO: Evitar generar el documento si se canceló la operación ---
     if getattr(self, "cancelar_proceso", False):
       return
 
@@ -923,13 +1080,14 @@ class ExcelUploaderApp(TkinterDnD.Tk):
 
   def generar_excel_final(self, mapa_contribuyentes):
     self.escribir_log("\n--- CONSULTAS FINALIZADAS ---")
-    self.escribir_log("Inyectando resultados en el documento Excel...")
+    self.escribir_log("Inyectando resultados actualizados en el documento Excel...")
     try:
       wb = openpyxl.load_workbook(self.ruta_archivo_actual)
       ws = wb.active
 
       header_row = None
       col_rif = None
+      col_contribuyente = None
 
       for r in range(1, min(30, ws.max_row + 1)):
         for c in range(1, ws.max_column + 1):
@@ -937,26 +1095,27 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           if val == "Cliente (Identificación)":
             header_row = r
             col_rif = c
-            break
+          elif val == "Contribuyente":
+            col_contribuyente = c
         if header_row:
           break
 
       if col_rif is not None:
-        new_col = ws.max_column + 1
-        letra_nueva_col = get_column_letter(new_col)
-
-        celda_header = ws.cell(
-            row=header_row, column=new_col, value="Contribuyente"
-        )
-        celda_referencia = ws.cell(row=header_row, column=new_col - 1)
-
-        if celda_referencia.has_style:
-          celda_header.font = copy(celda_referencia.font)
-          celda_header.border = copy(celda_referencia.border)
-          celda_header.fill = copy(celda_referencia.fill)
-          celda_header.alignment = copy(celda_referencia.alignment)
-
-        ws.column_dimensions[letra_nueva_col].width = 16
+        if col_contribuyente is not None:
+          new_col = col_contribuyente
+        else:
+          new_col = ws.max_column + 1
+          letra_nueva_col = get_column_letter(new_col)
+          celda_header = ws.cell(
+              row=header_row, column=new_col, value="Contribuyente"
+          )
+          celda_referencia = ws.cell(row=header_row, column=new_col - 1)
+          if celda_referencia.has_style:
+            celda_header.font = copy(celda_referencia.font)
+            celda_header.border = copy(celda_referencia.border)
+            celda_header.fill = copy(celda_referencia.fill)
+            celda_header.alignment = copy(celda_referencia.alignment)
+          ws.column_dimensions[letra_nueva_col].width = 16
 
         for row in range(header_row + 1, ws.max_row + 1):
           valor_rif = (
@@ -972,12 +1131,34 @@ class ExcelUploaderApp(TkinterDnD.Tk):
                 horizontal="center"
             )
 
-        # Utilizar la ruta seleccionada por el usuario en vez del nombre por defecto
+        if ws.auto_filter and ws.auto_filter.ref:
+          partes = ws.auto_filter.ref.split(":")
+          if len(partes) == 2:
+            inicio_ref = partes[0]
+            fila_final_match = re.search(r'\d+', partes[1])
+            if fila_final_match:
+              fila_final = fila_final_match.group()
+              ultima_letra = get_column_letter(new_col)
+              inicio_fila_match = re.search(r'\d+', inicio_ref)
+              fila_inicio = (
+                  inicio_fila_match.group()
+                  if inicio_fila_match
+                  else str(header_row)
+              )
+              col_inicio_letra = re.sub(r'\d+', '', inicio_ref)
+              ws.auto_filter.ref = (
+                  f"{col_inicio_letra}{fila_inicio}:{ultima_letra}{ws.max_row}"
+              )
+        else:
+          primera_letra = "A"
+          ultima_letra = get_column_letter(new_col)
+          ws.auto_filter.ref = f"{primera_letra}{header_row}:{ultima_letra}{ws.max_row}"
+
         nuevo_archivo = self.ruta_guardado
         wb.save(nuevo_archivo)
 
         self.escribir_log(
-            f"¡ÉXITO! Archivo generado correctamente:\n{nuevo_archivo}"
+            f"¡ÉXITO! Archivo actualizado correctamente:\n{nuevo_archivo}"
         )
         self.after(
             0,
@@ -991,7 +1172,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     except Exception as e:
       self.escribir_log(f"Error fatal guardando Excel: {e}")
     finally:
-      # Restaurar visualmente el botón al concluir el proceso
       self.after(0, self.restaurar_boton_iniciar)
 
 
