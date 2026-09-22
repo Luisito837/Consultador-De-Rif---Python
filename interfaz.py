@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, wait
 from copy import copy
+from datetime import datetime
 import json
 import os
 import re
@@ -29,6 +30,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.df_filtrado_global = None
     self.ruta_archivo_actual = None
     self.route_vars = {}
+    self.contribuyente_vars = {}
     self.cancelar_proceso = False
     self.ruta_guardado = None
 
@@ -103,7 +105,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         self.frame_upload,
         text="Buscar en archivos",
         command=self.browse_file,
-        font=("Arial", 10, "bold"),
+        font=("Arial", 12, "bold"),
         bg="#007bff",
         fg="white",
         padx=15,
@@ -118,7 +120,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         text="📁 Arrastra tu archivo Excel aquí\no usa el botón para buscarlo",
         bg="#f8f9fa",
         fg="#495057",
-        font=("Arial", 11),
+        font=("Arial", 13),
         justify="center",
     )
     self.label.pack(expand=True, fill="both")
@@ -131,7 +133,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         text="",
         bg="#e9ecef",
         fg="#0d6efd",
-        font=("Arial", 9, "bold", "underline"),
+        font=("Arial", 11, "bold", "underline"),
         wraplength=320,
         justify="left",
         cursor="hand2",
@@ -143,7 +145,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         self.frame_file_info,
         text="🔄 Cambiar archivo",
         command=self.browse_file,
-        font=("Arial", 8, "bold"),
+        font=("Arial", 10, "bold"),
         bg="#dc3545",
         fg="white",
         padx=6,
@@ -162,7 +164,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         self,
         text="Iniciar Consulta",
         command=self.iniciar_hilo_consultas,
-        font=("Arial", 10, "bold"),
+        font=("Arial", 12, "bold"),
         bg="#28a745",
         fg="white",
         padx=12,
@@ -173,6 +175,16 @@ class ExcelUploaderApp(TkinterDnD.Tk):
 
     self.drop_target_register(DND_FILES)
     self.dnd_bind("<<Drop>>", self.handle_drop)
+
+  def seleccionar_todas_rutas(self):
+    """Marca todas las casillas de rutas disponibles."""
+    for var in self.route_vars.values():
+      var.set(True)
+
+  def deseleccionar_todas_rutas(self):
+    """Desmarca todas las casillas de rutas disponibles."""
+    for var in self.route_vars.values():
+      var.set(False)
 
   def cargar_configuracion(self):
     config_path = os.path.join(
@@ -248,7 +260,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       df = df.loc[:, ~df.columns.duplicated()]
       df.columns = [str(c).strip() for c in df.columns]
 
-      col_ruta, col_rif, col_nombre, col_estatus = None, None, None, None
+      col_ruta, col_rif, col_nombre, col_estatus, col_contribuyente = None, None, None, None, None
 
       for col in df.columns:
         col_upper = str(col).upper().strip()
@@ -269,6 +281,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           col_nombre = col
         elif not col_estatus and col_upper in ["ESTATUS", "ESTADO"]:
           col_estatus = col
+        elif not col_contribuyente and col_upper in ["CONTRIBUYENTE", "CONTRIBUYENTE ESPECIAL"]:
+          col_contribuyente = col
 
       for col in df.columns:
         col_upper = str(col).upper()
@@ -291,6 +305,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             for k in ["ESTATUS", "ESTADO", "SITUACION", "CONDICION"]
         ):
           col_estatus = col
+        elif not col_contribuyente and "CONTRIBUYENTE" in col_upper:
+          col_contribuyente = col
 
       data_dict = {}
       if col_ruta:
@@ -303,6 +319,8 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         data_dict["Nombre Cliente"] = "SIN NOMBRE"
       if col_estatus:
         data_dict["Estatus"] = df[col_estatus]
+      if col_contribuyente:
+        data_dict["Contribuyente"] = df[col_contribuyente]
 
       df_limpio = pd.DataFrame(data_dict)
 
@@ -368,7 +386,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           self.frame_checks,
           text="Selecciona el/los estatus a evaluar:",
           bg="#f8f9fa",
-          font=("Arial", 9, "bold"),
+          font=("Arial", 11, "bold"),
           fg="#333",
       )
       lbl_estatus.pack(anchor="w", padx=20, pady=2)
@@ -389,14 +407,90 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           bg="#f8f9fa",
       ).pack(side="left", padx=5)
 
+      # --- CHECKLIST CONTRIBUYENTE ---
+      self.contribuyente_vars.clear()
+      
+      if "Contribuyente" in self.df_filtrado_global.columns:
+        s_contrib_str = self.df_filtrado_global["Contribuyente"].fillna("").astype(str).str.strip().str.upper()
+        valores_contrib = [
+            val for val in s_contrib_str.unique() 
+            if val and val not in ["NAN", "NONE", "NULL", "NAT"]
+        ]
+
+        lbl_contrib = tk.Label(
+            self.frame_checks,
+            text="Selecciona el/los casos de Contribuyente:",
+            bg="#f8f9fa",
+            font=("Arial", 11, "bold"),
+            fg="#333",
+        )
+        lbl_contrib.pack(anchor="w", padx=20, pady=(4, 2))
+
+        frame_contrib = tk.Frame(self.frame_checks, bg="#f8f9fa")
+        frame_contrib.pack(anchor="w", padx=25, pady=2)
+
+        for val in sorted(valores_contrib):
+          var = tk.BooleanVar(value=True)
+          var.trace_add("write", lambda *args: self.actualizar_estadisticas())
+          self.contribuyente_vars[val] = var
+          
+          tk.Checkbutton(
+              frame_contrib,
+              text=val.title(),
+              variable=var,
+              bg="#f8f9fa",
+              font=("Arial", 10),
+          ).pack(side="left", padx=5)
+
+        # Checkbox para valores Vacíos / No consultados
+        var_vacio = tk.BooleanVar(value=True)
+        var_vacio.trace_add("write", lambda *args: self.actualizar_estadisticas())
+        self.contribuyente_vars["VACIO"] = var_vacio
+
+        tk.Checkbutton(
+            frame_contrib,
+            text="Vacío",
+            variable=var_vacio,
+            bg="#f8f9fa",
+            font=("Arial", 10),
+        ).pack(side="left", padx=5)
+
+      # --- CABECERA DE RUTAS CON BOTONES DE SELECCIÓN RÁPIDA ---
+      frame_rutas_header = tk.Frame(self.frame_checks, bg="#f8f9fa")
+      frame_rutas_header.pack(fill="x", padx=20, pady=(4, 2))
+
       lbl_sub = tk.Label(
-          self.frame_checks,
+          frame_rutas_header,
           text="Selecciona las rutas a incluir:",
           bg="#f8f9fa",
-          font=("Arial", 9, "bold"),
+          font=("Arial", 11, "bold"),
           fg="#333",
       )
-      lbl_sub.pack(anchor="w", padx=20, pady=(4, 2))
+      lbl_sub.pack(side="left")
+
+      btn_deselect_all = tk.Button(
+          frame_rutas_header,
+          text="Desmarcar todo",
+          command=self.deseleccionar_todas_rutas,
+          font=("Arial", 10, "bold"),
+          bg="#e9ecef",
+          fg="#dc3545",
+          relief="flat",
+          cursor="hand2",
+      )
+      btn_deselect_all.pack(side="right", padx=(2, 0))
+
+      btn_select_all = tk.Button(
+          frame_rutas_header,
+          text="Marcar todo",
+          command=self.seleccionar_todas_rutas,
+          font=("Arial", 10, "bold"),
+          bg="#e9ecef",
+          fg="#007bff",
+          relief="flat",
+          cursor="hand2",
+      )
+      btn_select_all.pack(side="right", padx=2)
 
       container_scroll = tk.Frame(
           self.frame_checks, bg="#f8f9fa", bd=1, relief="solid"
@@ -450,7 +544,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             text=texto_ruta,
             variable=var,
             bg="white",
-            font=("Arial", 9),
+            font=("Arial", 11),
         )
 
         chk.bind("<MouseWheel>", _on_mousewheel)
@@ -472,7 +566,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       self.btn_stat_total = tk.Button(
           frame_stats,
           text="Total: 0",
-          font=("Arial", 8, "bold"),
+          font=("Arial", 10, "bold"),
           bg="#e9ecef",
           fg="#333",
           relief="groove",
@@ -483,7 +577,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       self.btn_stat_dup = tk.Button(
           frame_stats,
           text="Duplicados: 0",
-          font=("Arial", 8, "bold"),
+          font=("Arial", 10, "bold"),
           bg="#fff3cd",
           fg="#856404",
           relief="groove",
@@ -494,7 +588,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       self.btn_stat_vacio = tk.Button(
           frame_stats,
           text="Vacíos: 0",
-          font=("Arial", 8, "bold"),
+          font=("Arial", 10, "bold"),
           bg="#f8d7da",
           fg="#721c24",
           relief="groove",
@@ -505,7 +599,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       self.btn_stat_invalido = tk.Button(
           frame_stats,
           text="Inválidos: 0",
-          font=("Arial", 8, "bold"),
+          font=("Arial", 10, "bold"),
           bg="#cfe2ff",
           fg="#084298",
           relief="groove",
@@ -551,6 +645,26 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         df_sub = df_sub[s.str.contains("inactivo", case=False, na=False)]
       elif not activo and not inactivo:
         df_sub = df_sub.iloc[0:0]
+
+    # Filtro dinámico de la columna Contribuyente
+    if "Contribuyente" in df_sub.columns and getattr(self, 'contribuyente_vars', None) and self.contribuyente_vars:
+      s_contrib = df_sub["Contribuyente"].fillna("").astype(str).str.strip().str.upper()
+
+      valores_seleccionados = [k for k, v in self.contribuyente_vars.items() if k != "VACIO" and v.get()]
+      vacio_seleccionado = self.contribuyente_vars.get("VACIO", tk.BooleanVar(value=False)).get()
+
+      todos_los_valores_existentes = [k for k in self.contribuyente_vars.keys() if k != "VACIO"]
+
+      mask_valores = s_contrib.isin(valores_seleccionados) if valores_seleccionados else pd.Series(False, index=df_sub.index)
+
+      mask_vacio = (
+          df_sub["Contribuyente"].isna()
+          | (s_contrib == "")
+          | (s_contrib.isin(["NAN", "NONE", "NULL", "NAT"]))
+          | (~s_contrib.isin(todos_los_valores_existentes))
+      ) if vacio_seleccionado else pd.Series(False, index=df_sub.index)
+
+      df_sub = df_sub[mask_valores | mask_vacio]
 
     return df_sub
 
@@ -653,7 +767,7 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     lbl_titulo = tk.Label(
         top,
         text=f"📋 {titulo} ({len(df_resultado)} encontrados)",
-        font=("Arial", 11, "bold"),
+        font=("Arial", 13, "bold"),
         bg="#f8f9fa",
         fg="#333",
     )
@@ -749,9 +863,14 @@ class ExcelUploaderApp(TkinterDnD.Tk):
       messagebox.showwarning("Aviso", "No hay RIFs válidos para consultar.")
       return
 
-    # Solicitar ruta de guardado antes de iniciar el proceso
+    # --- FORMATO DE NOMBRE CON RUTAS PROCESADAS Y FECHA (DDMMAAAA) ---
+    rutas_seleccionadas = sorted([ruta for ruta, var in self.route_vars.items() if var.get()])
+    rutas_str = "".join(rutas_seleccionadas)
+    fecha_str = datetime.now().strftime("%d%m%Y")
+
     base, ext = os.path.splitext(self.ruta_archivo_actual)
-    nombre_sugerido = f"{os.path.basename(base)}_PROCESADO{ext}"
+    nombre_sugerido = f"{os.path.basename(base)}_PROCESADO_{rutas_str}_{fecha_str}{ext}"
+
     self.ruta_guardado = filedialog.asksaveasfilename(
         title="Guardar archivo procesado como...",
         initialfile=nombre_sugerido,
@@ -759,7 +878,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
         filetypes=[("Archivos de Excel", "*.xlsx"), ("Todos los archivos", "*.*")]
     )
 
-    # Si el usuario cierra el cuadro de diálogo sin elegir ruta, abortar
     if not self.ruta_guardado:
       return
 
@@ -770,7 +888,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.top_log.geometry("650x450")
     self.top_log.config(bg="#1e1e1e")
 
-    # Vincular cierre de la ventana de la consola (la 'X') con la cancelación
     self.top_log.protocol("WM_DELETE_WINDOW", self.solicitar_cancelacion)
 
     self.txt_log = tk.Text(
@@ -779,7 +896,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     self.txt_log.pack(fill="both", expand=True, padx=10, pady=10)
     self.txt_log.config(state="disabled")
 
-    # Modificar el botón para que actúe como "Cancelar"
     self.btn_download.config(
         text="Cancelar Consulta",
         bg="#dc3545",
@@ -809,11 +925,10 @@ class ExcelUploaderApp(TkinterDnD.Tk):
     )
 
     for rif in chunk_rifs:
-      # --- Interrumpir ciclo si el proceso fue cancelado ---
       if getattr(self, "cancelar_proceso", False):
         break
 
-      max_intentos = 12
+      max_intentos = 15
       intento = 1
       res = None
 
@@ -831,13 +946,12 @@ class ExcelUploaderApp(TkinterDnD.Tk):
               f" {intento}/{max_intentos}). Reintentando..."
           )
           intento += 1
-          time.sleep(1.0)
+          time.sleep(3.0)
           continue
 
         self.escribir_log(f"[{rif}] ❌ Error de conexión o servidor.")
         break
 
-      # --- Lógica de asignación de estatus según resultado o agotamiento de intentos ---
       if res and res.get("status") == "success":
         nombre = res.get("nombre", "SIN NOMBRE").title()
         condicion = res.get("condicion", "").upper()
@@ -866,11 +980,11 @@ class ExcelUploaderApp(TkinterDnD.Tk):
             " ---\n"
         )
 
-      time.sleep(0.5)
+      time.sleep(3.0)
 
   def gestor_multihilo_background(self, rifs_a_consultar):
     total = len(rifs_a_consultar)
-    MAX_WORKERS = 8
+    MAX_WORKERS = 6
 
     self.escribir_log(
         f"--- INICIANDO DISTRIBUCIÓN POR LOTES ({total} REGISTROS) ---"
@@ -920,7 +1034,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
           except Exception as e:
               self.escribir_log(f"ERROR FATAL EN HILO: {e}")
 
-    # --- Evitar generar el documento si se canceló la operación ---
     if getattr(self, "cancelar_proceso", False):
       return
 
@@ -980,7 +1093,6 @@ class ExcelUploaderApp(TkinterDnD.Tk):
                 horizontal="center"
             )
 
-        # --- EXPANDIR O CREAR AUTOFILTRO DE EXCEL ---
         col_final_letra = get_column_letter(ws.max_column)
         if ws.auto_filter and ws.auto_filter.ref:
           ref_actual = str(ws.auto_filter.ref)

@@ -3,8 +3,10 @@ from seniatOCR import SeniatOCR
 
 def main():
 
+    
+
     variable = SeniatOCR()
-    resultado = variable.consultar_con_reintentos("J-08521954-4",12)
+    resultado = variable.consultar_con_reintentos("J-30216597-0",12)
     
     print(resultado)
 

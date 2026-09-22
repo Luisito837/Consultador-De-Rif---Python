@@ -210,7 +210,7 @@ class SeniatOCR:
                 return resultado
             if resultado["status"] == "fail_ocr":
                 intento += 1
-                time.sleep(1)
+                time.sleep(3)
                 continue
             return resultado
         return {"status": "error", "message": f"Superado el límite de {max_intentos} reintentos."}
