@@ -214,3 +214,9 @@ class SeniatOCR:
                 continue
             return resultado
         return {"status": "error", "message": f"Superado el límite de {max_intentos} reintentos."}
+
+
+
+if __name__ == "__main__":
+    app = SeniatOCR()
+    app.consultar_rif("J-08521954-4")
