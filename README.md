@@ -36,4 +36,8 @@ CMD / TERMINAL:
   pip install pandas openpyxl requests beautifulsoup4 opencv-python numpy easyocr tkinterdnd2 pyinstaller
 ```
 
-Ejecute el Visual Studio Code y ya podra ejecutarlo
+Para compilar use este:
+
+```bash
+pyinstaller --noconfirm --onedir --windowed --collect-all easyocr --collect-all torch --collect-all torchvision interfaz_3.py
+```
